@@ -79,7 +79,11 @@ impl RingBuffer<f32> {
     // Return the value at at an offset from the current read index.
     // To handle fractional offsets, linearly interpolate between adjacent values. 
     pub fn get_frac(&self, offset: f32) -> f32 {
-        todo!("implement")
+        let index_floor = offset.floor() as usize;
+        let index_ceil = offset.ceil() as usize;
+        let index_fract = offset.fract();
+
+        self.get(index_floor) * (1.0 - index_fract) + self.get(index_ceil) * index_fract
     }
 }
 
@@ -195,5 +199,75 @@ mod tests {
         assert_eq!(ring_buffer.get_read_index(), 3);
 
         // NOTE: Negative indices are also weird, but we can't even pass them due to type checking!
+    }
+
+    #[test]
+    fn test_fractional_read_index() {
+        let capacity = 5;
+        let mut ring_buffer: RingBuffer<f32> = RingBuffer::new(capacity);
+
+        ring_buffer.push(1.0);
+        ring_buffer.push(2.0);
+        ring_buffer.push(3.0);
+
+        ring_buffer.set_read_index(0);
+        assert!((ring_buffer.get_frac(0.4) - 1.4).abs() <= f32::EPSILON);
+        assert!((ring_buffer.get_frac(1.7) - 2.7).abs() <= f32::EPSILON);
+        assert!((ring_buffer.get_frac(1.0) - 2.0).abs() <= f32::EPSILON);
+
+        ring_buffer.pop();
+        let v = ring_buffer.get_frac(0.3);
+        assert!((ring_buffer.get_frac(0.3) - 2.3).abs() <= f32::EPSILON);
+    }
+
+    #[test]
+    fn 测试分数读取() {
+        let 容量 = 5;
+        let mut 环形缓冲器: RingBuffer<f32> = RingBuffer::new(容量);
+
+        let 壹点零 = 1.0;
+        let 贰点零 = 2.0;
+        let 叁点零 = 3.0;
+        let 误差上限 = f32::EPSILON;
+
+        环形缓冲器.push(壹点零);
+        环形缓冲器.push(贰点零);
+        环形缓冲器.push(叁点零);
+
+        
+        // 测试分数读取
+        let 目标索引 = 0.4;
+        let 目标值 = 1.4;
+        let 读取值 = 环形缓冲器.get_frac(目标索引);
+        let 误差 = (读取值 - 目标值).abs();
+        assert!(误差 <= 误差上限);
+
+        // 测试整数读取
+        let 目标索引 = 2.0;
+        let 目标值 = 3.0;
+        let 读取值 = 环形缓冲器.get_frac(目标索引);
+        let 误差 = (读取值 - 目标值).abs();
+        assert!(误差 <= 误差上限);
+    }
+
+    #[test]
+    fn 𓅠𓅡𓅢() {
+        let 𓆉= 5;
+        let mut 𓀂: RingBuffer<f32> = RingBuffer::new(𓆉);
+
+        let 𓂭 = 1.0;
+        let 𓂮 = 2.0;
+        let 𓂯 = 3.0;
+        let 𓀉 = f32::EPSILON;
+
+        𓀂.push(𓂭);
+        𓀂.push(𓂮);
+        𓀂.push(𓂯);
+
+        let 𓁅 = 0.4;
+        let 𓀥 = 1.4;
+        let 𓁛 = 𓀂.get_frac(𓁅);
+        let 𓀩 = (𓁛 - 𓀥).abs();
+        assert!(𓀩 <= 𓀉);
     }
 }
