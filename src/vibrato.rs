@@ -33,14 +33,16 @@ impl Vibrato {
     }
 
     pub fn process(&self, input: &[&[f32]], output: &mut [&mut [f32]]) {
-        let mut delay_line: RingBuffer<f32> = RingBuffer::new(10);
+        let mut delay_line = vec![RingBuffer::<f32>::new(10); self.num_channels];
         for i in 0..input.len() {
             let mut oscillator = WavetableLFO::new(100, self.oscillator_f0, self.sample_rate_hz);
             let mod_freq = oscillator.next_sample();
             let tap = 1 as f32 + self.delay_in_secs + self.delay_in_samples as f32 * mod_freq;
             for channel in 0..self.num_channels {
-                delay_line.push(input[i][channel] as f32);
-                output[i][channel] = delay_line.get_frac(tap);
+                delay_line
+                output[i][channel] = input[i][channel];
+                // delay_line.push(input[i][channel] as f32);
+                // output[i][channel] = delay_line.get_frac(tap);
             }
         }
 
