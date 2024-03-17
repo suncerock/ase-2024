@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write, f32::consts::PI};
+use std::{fs::File};
 
 mod ring_buffer;
 mod vibrato;
@@ -22,43 +22,40 @@ fn main() {
    // Open the input wave file
    let mut reader = hound::WavReader::open(&args[1]).unwrap();
    let spec = reader.spec();
-   let channels = spec.channels;
+   let channels = spec.channels as usize;
 
    // TODO: Modify this to process audio in blocks using your comb filter and write the result to an audio file.
    //       Use the following block size:
-   let sample_rate = spec.sample_rate;
+   let sample_rate = spec.sample_rate as usize;
    let block_size = 1024;
 
-   let input: Vec<Vec<f32>> = reader.samples::<i16>()
-        .map(|s| s.unwrap() as f32 / i16::MAX as f32)
-        .collect::<Vec<f32>>()
-        .chunks(channels as usize)
-        .map(|chunk| chunk.to_vec())
-        .collect();
+   let out = File::create(&args[2]).expect("Unable to create file");
+   let mut writer = hound::WavWriter::new(out, spec).unwrap();
 
-   let mut vibrato_process = vibrato::Vibrato::new(sample_rate, channels as usize);
+   // Read audio data and write it to the output text file (one column per channel)
+   let mut block = vec![Vec::<f32>::with_capacity(block_size); channels];
+   let mut output_block = vec![vec![0.0_f32; block_size]; channels];
+   let num_samples = reader.len() as usize;
+
+   let mut vibrato_process = vibrato::Vibrato::new(sample_rate, channels, delay_in_secs);
    vibrato_process.set_param(vibrato::VibratoParam::DelayInSecs, delay_in_secs);
    vibrato_process.set_param(vibrato::VibratoParam::OscillatorF0, oscillator_f0);
 
-   let input_slice: Vec<&[f32]> = input.iter().map(|row| row.as_slice()).collect();
-   
-   let mut writer = hound::WavWriter::create(&args[2], hound::WavSpec {
-        channels: spec.channels,
-        sample_rate: spec.sample_rate,
-        bits_per_sample: spec.bits_per_sample,
-        sample_format: spec.sample_format
-   }).unwrap();
-
-   let mut output = vec![vec![0.0 as f32; channels as usize]; block_size];
-   let mut output_slice: Vec<&mut [f32]> = output.iter_mut().map(|row| row.as_mut_slice()).collect();
-   let num_blocks = input.len() / block_size;
-   for i in 0..num_blocks {
-        vibrato_process.process(&input_slice[i*block_size..(i+1)*block_size], output_slice.as_mut_slice());
-        for j in 0..block_size {
-            for c in 0..channels as usize {
-                writer.write_sample((output_slice[j][c] * i16::MAX as f32) as i16).unwrap();
-            }
-        }
-   }
+   for (i, sample) in reader.samples::<i16>().enumerate() {
+     let sample = sample.unwrap() as f32 / (1 << 15) as f32;
+     block[i % channels].push(sample);
+     if (i % (channels * 1024) == 0) || (i == num_samples - 1) {
+         // Process block
+         let ins = block.iter().map(|c| c.as_slice()).collect::<Vec<&[f32]>>();
+         let mut outs = output_block.iter_mut().map(|c| c.as_mut_slice()).collect::<Vec<&mut [f32]>>();
+         vibrato_process.process(ins.as_slice(), outs.as_mut_slice());
+         for j in 0..(channels * block[0].len()) {
+             writer.write_sample((output_block[j % channels][j / channels] * (1 << 15) as f32) as i32).unwrap();
+         }
+         for channel in block.iter_mut() {
+             channel.clear();
+         }
+     }
+}
 
 }

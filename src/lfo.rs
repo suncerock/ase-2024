@@ -8,7 +8,7 @@ pub struct WavetableLFO {
 }
 
 impl WavetableLFO {
-    pub fn new(table_size: usize, frequency: f32, sample_rate: u32) -> Self {
+    pub fn new(table_size: usize, frequency: f32, sample_rate: usize) -> Self {
         let phase_increment = frequency / sample_rate as f32;
         let mut sine_wave: Vec<f32> = Vec::with_capacity(table_size);
         for i in 0..table_size {
@@ -43,7 +43,7 @@ mod tests {
     fn test_wavetable() {
         // Create a sine wave table
         let table_size = 100 as usize;
-        let sample_rate = 44100 as u32;
+        let sample_rate = 44100 as usize;
         let frequency = 10.0; // Hz, adjust as needed
         let mut lfo = WavetableLFO::new(table_size, frequency, sample_rate);
 
