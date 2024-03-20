@@ -16,8 +16,8 @@ fn main() {
         eprintln!("Usage: {} <input wave filename> <output wave filename> <oscillator_f0> <delay_in_secs>", args[0]);
         return
    }
-   let oscillator_f0 = if args.len() <= 3 {5.0} else {args[4].parse::<f32>().unwrap()};
-   let delay_in_secs = if args.len() <= 4 {2.0} else {args[5].parse::<f32>().unwrap()};
+   let oscillator_f0 = if args.len() <= 3 {5.0} else {args[3].parse::<f32>().unwrap()};
+   let delay_in_secs = if args.len() <= 4 {2.0} else {args[4].parse::<f32>().unwrap()};
 
    // Open the input wave file
    let mut reader = hound::WavReader::open(&args[1]).unwrap();
@@ -37,7 +37,7 @@ fn main() {
    let mut output_block = vec![vec![0.0_f32; block_size]; channels];
    let num_samples = reader.len() as usize;
 
-   let mut vibrato_process = vibrato::Vibrato::new(sample_rate, channels, delay_in_secs);
+   let mut vibrato_process = vibrato::Vibrato::new(sample_rate, channels, delay_in_secs, oscillator_f0);
    vibrato_process.set_param(vibrato::VibratoParam::DelayInSecs, delay_in_secs);
    vibrato_process.set_param(vibrato::VibratoParam::OscillatorF0, oscillator_f0);
 

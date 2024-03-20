@@ -2,11 +2,10 @@ use crate::ring_buffer::RingBuffer;
 use crate::lfo::WavetableLFO;
 
 pub struct Vibrato {
-    sample_rate_hz: usize,
-
     delay_in_secs: f32,
     oscillator_f0: f32,
 
+    lfo: WavetableLFO,
     delay_lines: Vec<RingBuffer<f32>>
 }
 
@@ -17,19 +16,20 @@ pub enum VibratoParam {
 }
 
 impl Vibrato {
-    pub fn new(sample_rate_hz: usize, num_channels: usize, max_delay_secs: f32) -> Self {
+    pub fn new(sample_rate_hz: usize, num_channels: usize, max_delay_secs: f32, lfo_frequency: f32) -> Self {
         let mut delay_lines = Vec::with_capacity(num_channels);
         let delay_line_size = 3 * (max_delay_secs * sample_rate_hz as f32).ceil() as usize + 2;
         for _ in 0..num_channels {
             let delay_line = RingBuffer::new(delay_line_size);
             delay_lines.push(delay_line);
         };
-        Vibrato {
-            sample_rate_hz: sample_rate_hz,
 
+        let lfo = WavetableLFO::new(512, lfo_frequency, sample_rate_hz);
+        Vibrato {
             delay_in_secs: f32::default(),
             oscillator_f0: f32::default(),
 
+            lfo: lfo,
             delay_lines: delay_lines,
         }
     }
@@ -43,9 +43,9 @@ impl Vibrato {
     pub fn process(&mut self, input: &[&[f32]], output: &mut [&mut [f32]]) {
         for i in 0..self.delay_lines.len() {
             let delay_line = &mut self.delay_lines[i];
-            let mut oscillator = WavetableLFO::new(100, self.oscillator_f0, self.sample_rate_hz);
+
             for (x, y) in input[i].iter().zip(output[i].iter_mut()) {
-                let mod_freq = oscillator.next_sample();
+                let mod_freq = self.lfo.next_sample();
                 let tap = 1 as f32 + self.delay_in_secs + self.delay_in_secs * mod_freq;
 
                 delay_line.push(*x);
@@ -88,7 +88,7 @@ mod tests {
         let sample_rate_hz = 24000 as usize;
         let num_channels = 1 as usize;
 
-        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs);
+        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs, f0);
 
         vibrato.set_param(VibratoParam::DelayInSecs, delay_in_secs);
         vibrato.set_param(VibratoParam::OscillatorF0, f0);
@@ -105,7 +105,7 @@ mod tests {
         let num_channels = 1 as usize;
         let block_size = 1024;
 
-        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs);
+        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs, f0);
         vibrato.set_param(VibratoParam::DelayInSecs, delay_in_secs);
         vibrato.set_param(VibratoParam::OscillatorF0, f0);
 
@@ -131,7 +131,7 @@ mod tests {
         let num_channels = 1 as usize;
         let block_size = 1024;
 
-        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs);
+        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs, f0);
         vibrato.set_param(VibratoParam::DelayInSecs, delay_in_secs);
         vibrato.set_param(VibratoParam::OscillatorF0, f0);
 
@@ -156,7 +156,7 @@ mod tests {
         let sample_rate_hz = 24000 as usize;
         let num_channels = 1 as usize;
 
-        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs);
+        let mut vibrato = Vibrato::new(sample_rate_hz, num_channels, delay_in_secs, f0);
         vibrato.set_param(VibratoParam::DelayInSecs, delay_in_secs);
         vibrato.set_param(VibratoParam::OscillatorF0, f0);
 

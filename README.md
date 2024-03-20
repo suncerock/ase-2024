@@ -1,0 +1,1 @@
+The difference of the rust implementation and Python implementation is shown in the ![figure](difference.png)
