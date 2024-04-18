@@ -1,10 +1,15 @@
 use crate::ring_buffer::RingBuffer;
+use rustfft::{Fft, FftPlanner, num_complex::Complex};
+use std::sync::Arc; // Make sure Arc is imported
 
 pub struct FastConvolver {
     // TODO: your fields here
     impulse_response: Vec<f32>,
     mode: ConvolutionMode,
     buffer: Vec<f32>,
+    ir_blocks: Vec<Vec<Complex<f32>>>,
+    overlap_buffer: Vec<f32>,
+    block_size: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -15,21 +20,45 @@ pub enum ConvolutionMode {
 
 impl FastConvolver {
     pub fn new(impulse_response: &[f32], mode: ConvolutionMode) -> Self {
+        let block_size = match mode {
+            ConvolutionMode::FrequencyDomain { block_size } => block_size,
+            _ => panic!("Block size must be specified for FrequencyDomain mode"),
+        };
+        
+        let mut fft_planner = FftPlanner::new();
+        let fft = fft_planner.plan_fft_forward(block_size);
+
+        // Pass the fft Arc directly
+        let ir_blocks = Self::partition_and_transform_ir(impulse_response, fft, block_size);
+
         FastConvolver {
             impulse_response: impulse_response.to_vec(),
-            mode: mode,
-            buffer: vec![0.0; impulse_response.len() - 1],
+            mode,
+            buffer: vec![0.0; block_size],
+            ir_blocks,
+            overlap_buffer: vec![0.0; 2 * block_size],
+            block_size,
         }
     }
-
+    pub fn partition_and_transform_ir(ir: &[f32], fft: Arc<dyn Fft<f32>>, block_size: usize) -> Vec<Vec<Complex<f32>>> {
+        ir.chunks(block_size)
+            .map(|chunk| {
+                let mut input = vec![Complex::new(0.0, 0.0); block_size];
+                input.iter_mut().zip(chunk).for_each(|(a, &b)| *a = Complex::new(b, 0.0));
+                // Use the fft plan directly
+                fft.process(&mut input);
+                input
+            })
+            .collect()
+    }
     pub fn reset(&mut self) {
         self.buffer.clear();
     }
 
     pub fn process(&mut self, input: &[f32], output: &mut [f32]) {
         match self.mode {
-            ConvolutionMode::TimeDomain => { self.time_domain_process(input, output); }
-            ConvolutionMode::FrequencyDomain { block_size } => { self.frequency_domain_process(input, output); }
+            ConvolutionMode::TimeDomain => self.time_domain_process(input, output),
+            ConvolutionMode::FrequencyDomain { block_size: _ } => self.frequency_domain_process(input, output),
         }
     }
 
@@ -39,7 +68,6 @@ impl FastConvolver {
         }
     }
 
-    // TODO: feel free to define other functions for your own use
     fn time_domain_process(&mut self, input: &[f32], output: &mut [f32]) {
         let mut full_output = vec![0.0; input.len() + self.impulse_response.len() - 1];
 
@@ -70,8 +98,36 @@ impl FastConvolver {
     }
 
     fn frequency_domain_process(&mut self, input: &[f32], output: &mut [f32]) {
-        todo!("frequency_domain_process");
+        let mut fft_planner = FftPlanner::new();
+        let fft = fft_planner.plan_fft_forward(self.block_size);
+        let ifft = fft_planner.plan_fft_inverse(self.block_size);
+    
+        // Clear the overlap buffer
+        self.overlap_buffer.fill(0.0);
+    
+        for (i, chunk) in input.chunks(self.block_size).enumerate() {
+            let mut input_block = vec![Complex::new(0.0, 0.0); self.block_size];
+            input_block.iter_mut().zip(chunk).for_each(|(a, &b)| *a = Complex::new(b, 0.0));
+            fft.process(&mut input_block);
+    
+            let mut output_block = vec![Complex::new(0.0, 0.0); self.block_size];
+            for (j, (input_value, ir_value)) in input_block.iter().zip(self.ir_blocks.get(i).unwrap_or(&vec![Complex::new(0.0, 0.0); self.block_size]).iter()).enumerate() {
+                output_block[j] = *input_value * *ir_value;
+            }
+    
+            ifft.process(&mut output_block);
+    
+            for (j, &complex) in output_block.iter().enumerate() {
+                let index = i * self.block_size + j;
+                let buffer_len = self.overlap_buffer.len();  // Store buffer length
+                self.overlap_buffer[index % buffer_len] += complex.re; // We only need the real part
+            }
+        }
+    
+        // Copy from overlap buffer to output
+        output.copy_from_slice(&self.overlap_buffer[..input.len()]);
     }
+    
 }
 
 // TODO: feel free to define other types (here or in other modules) for your own use
@@ -193,4 +249,44 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_frequency_domain_convolver_basic() {
+        let input_len = 16;
+        let ir_len = 4;
+        let block_size = 4; // Test with a specific block size
+
+        let input = vec![1.0; input_len];
+        let impulse_response = vec![1.0; ir_len];
+        let mut output = vec![0.0; input_len]; // Output size adjusted for no overflow beyond input length
+
+        let mut convolver = FastConvolver::new(&impulse_response, ConvolutionMode::FrequencyDomain { block_size });
+        convolver.process(&input, &mut output);
+
+        // Expected output calculated manually or from a known good implementation
+        let expected_output = vec![1.0, 2.0, 3.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0];
+
+        assert_eq!(output, expected_output, "Outputs do not match for basic frequency domain convolution.");
+    }
+
+    #[test]
+    fn test_frequency_domain_convolver_latency_compensation() {
+        let input_len = 1024;
+        let ir_len = 64;
+        let block_size = 256; // Larger block size
+
+        let input = vec![0.0; input_len];
+        input[3] = 1.0; // Impulse at position 3
+        let impulse_response = vec![0.5; ir_len]; // Some non-trivial impulse response
+        let mut output = vec![0.0; input_len];
+
+        let mut convolver = FastConvolver::new(&impulse_response, ConvolutionMode::FrequencyDomain { block_size });
+        convolver.process(&input, &mut output);
+
+        // Check for latency and correct output
+        // Assuming the first non-zero output should start at the position of the impulse + some expected latency
+        let expected_start = 3; // Adjust based on the observed latency
+        let first_non_zero = output.iter().position(|&x| x != 0.0).unwrap();
+
+        assert_eq!(first_non_zero, expected_start, "Latency compensation is incorrect.");
+    }
 }
