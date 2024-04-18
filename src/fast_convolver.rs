@@ -273,20 +273,21 @@ mod tests {
         let input_len = 1024;
         let ir_len = 64;
         let block_size = 256; // Larger block size
-
-        let input = vec![0.0; input_len];
+    
+        let mut input = vec![0.0; input_len]; // Declare `input` as mutable
         input[3] = 1.0; // Impulse at position 3
         let impulse_response = vec![0.5; ir_len]; // Some non-trivial impulse response
         let mut output = vec![0.0; input_len];
-
+    
         let mut convolver = FastConvolver::new(&impulse_response, ConvolutionMode::FrequencyDomain { block_size });
         convolver.process(&input, &mut output);
-
+    
         // Check for latency and correct output
         // Assuming the first non-zero output should start at the position of the impulse + some expected latency
         let expected_start = 3; // Adjust based on the observed latency
         let first_non_zero = output.iter().position(|&x| x != 0.0).unwrap();
-
+    
         assert_eq!(first_non_zero, expected_start, "Latency compensation is incorrect.");
     }
+    
 }
